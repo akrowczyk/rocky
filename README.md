@@ -1,23 +1,21 @@
 # Desk Rocky
 
-M5Stack **StackChan** (CoreS3, kit SKU **K151-R**) as the body. The robot talks to **Grok 4.6** over HTTPS itself (`https://api.x.ai/v1`). No laptop required.
+M5Stack **StackChan** (CoreS3, kit SKU **K151-R**) as the body. The product is a **Grok Voice Agent**: Rocky **talks** out of the 1 W speaker. Caption-on-face is a fallback, not the product. No laptop required.
 
-The Python brain on a laptop is an **optional** fallback (simulator, local Ollama proxy, or a WebSocket brain if you leave `llm_*` empty and set `brain_host`). Personality is **Rocky** from *Project Hail Mary*.
+The CoreS3 opens `wss://api.x.ai/v1/realtime?model=grok-voice-latest`, streams the ES7210 mics up, and plays assistant PCM on the AW88298 speaker. If Voice WebSocket fails, it falls back to **grok-4.6** `POST /v1/chat/completions` (captions + tones) and, if that also fails, a canned **Friend! Friend! Friend!** + fist — still no laptop. A Python brain on a laptop remains an optional last path.
 
-Owner: **Andrew Krowczyk**. License: MIT.
-
-If Wi-Fi is down entirely, the body plays a scripted 12-second clip by itself. If the on-device LLM call fails, it still greets with a canned **Friend! Friend! Friend!** + fist bump — still no laptop.
+Personality is **Rocky** from *Project Hail Mary*. Owner: **Andrew Krowczyk**. License: MIT.
 
 ## Parts
 
 | Piece | What |
 |---|---|
 | Body | [M5StackChan AI Desktop Robot Kit with Remote Control (ESP32-S3)](https://shop.m5stack.com/products/m5stackchan-ai-desktop-robot-kit-with-remote-control-esp32-s3) — SKU K151-R |
-| Controller | CoreS3: ESP32-S3 @ 240 MHz, 16 MB flash, 8 MB PSRAM, 2.0" 320×240 IPS **ILI9342C** touch, **GC0308** camera, dual mics (ES7210), 1 W speaker (AW88298), **BMI270 + BMM150**, **LTR-553ALS-WA** proximity/ALS, microSD, Grove |
+| Controller | CoreS3: ESP32-S3 @ 240 MHz, 16 MB flash, 8 MB PSRAM, 2.0" 320×240 IPS **ILI9342C** touch, **GC0308** camera, dual mics (**ES7210**), 1 W speaker (**AW88298**), **BMI270 + BMM150**, **LTR-553ALS-WA** proximity/ALS, microSD, Grove |
 | Body extras | 12× **WS2812C**, IR, NFC **ST25R3916**, 550 mAh, two feedback servos (**SCS0009**): horizontal 360° continuous, vertical 90° |
-| Network | 2.4 GHz Wi-Fi. Path 2 talks HTTPS to xAI (`grok-4.6`) or any OpenAI-compatible `/v1/chat/completions` host. A laptop is optional. |
+| Network | 2.4 GHz Wi-Fi. Default path is xAI Voice (`grok-voice-latest`) over WSS. grok-4.6 chat/completions is the caption fallback. A laptop is optional. |
 
-Docs used (do not invent pins): [StackChan](https://docs.m5stack.com/en/stackchan), [CoreS3](https://docs.m5stack.com/en/core/CoreS3), [StackChan Body](https://docs.m5stack.com/en/base/StackChan_Body), [Servo safety note](https://docs.m5stack.com/en/arduino/stackchan/servo), [m5stack/StackChan-BSP](https://github.com/m5stack/StackChan-BSP).
+Docs used (do not invent pins): [StackChan](https://docs.m5stack.com/en/stackchan), [CoreS3](https://docs.m5stack.com/en/core/CoreS3), [StackChan Body](https://docs.m5stack.com/en/base/StackChan_Body), [Servo safety note](https://docs.m5stack.com/en/arduino/stackchan/servo), [m5stack/StackChan-BSP](https://github.com/m5stack/StackChan-BSP), [xAI Speech to Speech](https://docs.x.ai/developers/model-capabilities/audio/speech-to-speech), [Voice REST](https://docs.x.ai/developers/rest-api-reference/inference/voice).
 
 ## Architecture
 
@@ -25,20 +23,22 @@ Docs used (do not invent pins): [StackChan](https://docs.m5stack.com/en/stackcha
 flowchart LR
   subgraph desk [Desk]
     Body["StackChan body\n12x WS2812C, SCS0009 x2\n550 mAh, NFC, IR"]
-    Core["CoreS3 ESP32-S3\nface / tones / RGB / servos\nHTTPS LLM client"]
+    Core["CoreS3 ESP32-S3\nface / RGB / servos\nmic uplink + speaker downlink"]
     Body --- Core
   end
-  subgraph cloud [Cloud or LAN]
-    LLM["xAI Grok 4.6\nPOST /v1/chat/completions"]
+  subgraph cloud [xAI]
+    Voice["Grok Voice Agent\nwss /v1/realtime\ngrok-voice-latest"]
+    Chat["grok-4.6 fallback\nPOST /v1/chat/completions"]
+    TTS["POST /v1/tts\ncanned-line fallback"]
   end
   subgraph laptop [Laptop — optional]
     Brain["Python brain\nFastAPI WebSocket"]
     Sim["simulator.py"]
-    Proxy["Local Ollama / proxy"]
     Sim --> Brain
-    Brain -. optional .-> Proxy
   end
-  Core -->|"HTTPS chat/completions"| LLM
+  Core -->|"PCM16 16 kHz WSS"| Voice
+  Core -.->|"HTTP fallback"| Chat
+  Core -.->|"HTTP TTS fallback"| TTS
   Core -.->|"optional JSON events"| Brain
   Brain -.->|"optional JSON commands"| Core
 ```
@@ -46,9 +46,10 @@ flowchart LR
 Boot priority:
 
 1. Wi-Fi from LittleFS `/wifi.json`
-2. If `llm_base_url` + `llm_api_key` are set: **LLM mode**. `llmAsk("boot")` on setup; proximity person (cooldown) does `motionSnapTowardPerson` then `llmAsk("person", mm)`. HTTP/parse failure → local canned greeting. **No laptop.**
-3. Else if `brain_host` is set: existing WebSocket brain.
-4. Else: existing 12-second offline demo.
+2. If `llm_base_url` + `llm_api_key` and `voice` is not `false`: **Voice mode**. Connect `wss://api.x.ai/v1/realtime?model=grok-voice-latest`, `session.update`, spoken boot greeting. Proximity: `motionSnapTowardPerson` then a documented text nudge (`conversation.item.create` + `response.create`) so Rocky greets without waiting for speech. **No laptop. Talking is the product.**
+3. If Voice WSS fails: **grok-4.6** `llmAsk` (captions + tones). If that fails too: REST `POST /v1/tts` of the canned line on the speaker, else tones + caption.
+4. Else if `brain_host` is set: existing WebSocket brain.
+5. Else: existing 12-second offline demo.
 
 If Wi-Fi fails entirely → offline demo, same as before.
 
@@ -56,7 +57,7 @@ If Wi-Fi fails entirely → offline demo, same as before.
 
 **Y-axis (pitch) command range is 5° to 85° only.** M5Stack: operating at extreme angles stalls the vertical servo and can permanently damage it. X-axis (yaw) has no angle restriction; this firmware still clamps look-commands to ±90° so a JSON typo cannot spin forever.
 
-`motionLook()` is the only path that writes servo goal positions. It calls `clampPitch()` before any UART packet. There is no raw pitch API. LLM `look.pitch` values go through the same clamp.
+`motionLook()` is the only path that writes servo goal positions. It calls `clampPitch()` before any UART packet. There is no raw pitch API. Voice `body_act` pitch and LLM `look.pitch` both go through the same clamp.
 
 Do not rotate the head by hand while motors are powered.
 
@@ -71,7 +72,7 @@ Confirmed from official PinMap + StackChan-BSP `servo_init`:
 | Servo baud | `SERVO_UART_BAUD` | 1 000 000 | SCS0009 default + BSP |
 | Yaw servo ID | `SERVO_ID_YAW` | **1** | stack-chan community + BSP |
 | Pitch servo ID | `SERVO_ID_PITCH` | **2** | stack-chan community + BSP |
-| IR send / rec | `IR_SEND` / `IR_REC` | GPIO **5** / **10** | Official PinMap (unused in v1) |
+| IR send / rec | `IR_SEND` / `IR_REC` | GPIO **5** / **10** | Official PinMap (unused) |
 | Body I2C | `I2C_SDA` / `I2C_SCL` | GPIO **12** / **11** | Official PinMap |
 | PY32 expander | `PY32_ADDR_DEFAULT` | **0x6F** (alt **0x71**) | Official I2C table |
 | RGB LEDs | `PY32_PIN_RGB` | expander pin **13** | **Not an ESP32 GPIO.** BSP + docs IO14=RGB |
@@ -82,42 +83,79 @@ Confirmed from official PinMap + StackChan-BSP `servo_init`:
 
 1. **Yaw/pitch zero raw positions** (`SERVO_YAW_ZERO_RAW=460`, `SERVO_PITCH_ZERO_RAW=620`) are M5StackChan-BSP 1.0.1 *factory defaults*, not a measurement of *your* unit. Calibrate with the official “set current position as home” flow if the head is not square.
 2. **Arduino `Serial1.begin(baud, cfg, RX, TX)` argument order** is the opposite of ESP-IDF `uart_set_pin(TX, RX)`. Firmware uses Arduino order: RX=7, TX=6. If the head does not move, this is the first thing to re-check.
-3. **`range_mm` is a heuristic.** LTR-553 reports IR-reflectance counts. Lite-On and M5Stack do **not** document counts→mm. `proximityRangeMm()` exists only to fill the protocol field. The LLM user message warns the model not to treat it as science. Tune `PERSON_PS_THRESHOLD` on the actual desk.
+3. **`range_mm` is a heuristic.** LTR-553 reports IR-reflectance counts. Lite-On and M5Stack do **not** document counts→mm. `proximityRangeMm()` exists only to fill the protocol field. Tune `PERSON_PS_THRESHOLD` on the actual desk.
 4. PY32 I2C address is 0x6F unless `ADD_SEL` is high (0x71). Firmware probes both.
-5. IR, NFC, camera, mics: present on the kit, unused in v1.
+5. IR, NFC, camera: present on the kit, still unused.
+
+### Voice / audio — verified vs uncertain
+
+**Verified from docs (not hardware-tested in this tree):**
+
+- xAI Voice WSS endpoint is `wss://api.x.ai/v1/realtime?model=grok-voice-latest` (alias of `grok-voice-think-fast-2.0`). Auth: `Authorization: Bearer <xAI API key>`.
+- Client events used: `session.update`, `input_audio_buffer.append` (or binary frames), `conversation.item.create` (`message` / `function_call_output`), `response.create`.
+- Server events handled: `session.created`, `session.updated`, `error`, `input_audio_buffer.speech_started`, `response.created`, `response.output_audio.delta` (and `response.audio.delta`), `response.output_audio.done`, `response.output_audio_transcript.delta`, `response.function_call_arguments.done`, `response.done`.
+- Built-in voice id **`eve`** (docs default / example). Override with `llm_voice` in `wifi.json`. Do not invent a custom `voice_id`.
+- PCM 16-bit little-endian is a documented codec; 16000 Hz is a documented rate (wideband). Binary transport is a documented `audio.*.transport` value. Arduino `WebSocketsClient` can `sendBIN` / receive `WStype_BIN`.
+- CoreS3 **mic and speaker share I2S_NUM_1** (official M5Unified CoreS3 Mic sample: they cannot run at the same time). Firmware is **half-duplex**: listen XOR talk. No barge-in while Rocky is speaking.
+- TLS: the WebSockets library calls `WiFiClientSecure::setInsecure()` when no CA/fingerprint is set. Same weekend-prototype TLS as the HTTPS chat client. **v1 is not cert-pinned.**
+
+**Uncertain — first hardware bring-up must check these. Do not treat compile-success as a talk-test.**
+
+- Exact `M5.Mic` / `M5.Speaker` sample rate that sounds clean on *this* CoreS3 StackChan (code uses 16 kHz because it is M5.Mic's default and a documented Voice rate). 24 kHz is the Voice API default; we picked 16 kHz for bandwidth + the Mic default.
+- Whether Arduino `links2004/WebSockets` can complete TLS WSS to `api.x.ai` from CoreS3 (they already use it for the optional laptop brain on a *different* host, usually `ws://` not `wss://`). Handshake timeout is raised to 15 s (`WEBSOCKETS_TCP_TIMEOUT`). RAM during TLS + JSON + PCM is tight; PSRAM is used for audio buffers.
+- Whether `grok-voice-latest` actually accepts 16 kHz PCM over **binary** frames after `session.update`. If the server ignores `transport: "binary"` and emits JSON `response.output_audio.delta`, the client also base64-decodes those.
+- Mic gain (`M5.Mic` default `magnification=16`) and 1 W speaker volume (`SPEAKER_VOLUME=180` of 0..255). Desk distance, AGC, and clipping are unknown.
+- I2S swap click/pop on `Mic.end` / `Speaker.begin` (known CoreS3 behavior). Firmware waits 80 ms between end and begin; pops may still be audible.
+- Half-duplex means server VAD cannot hear the user while the speaker is up. Fine for a desk greeting; not a phone agent.
+
+This tree has been **compile-checked only**. No CoreS3 was attached.
 
 ## Protocol
 
-### On-device LLM (Path 2 — default)
+### Voice Agent (default)
 
-The CoreS3 POSTs to `{llm_base_url}/chat/completions` with `Authorization: Bearer {llm_api_key}`. Body is a small JSON object: `model`, `temperature`, `max_tokens`, `messages` (system = Rocky, user = boot or person). Timeout ~20 s. No streaming. Response `choices[0].message.content` must be a **JSON array** of body commands (markdown json fences are stripped).
+Endpoint: `wss://api.x.ai/v1/realtime?model=<llm_voice_model>` with `Authorization: Bearer <llm_api_key>`.
 
-User events:
+On connect the body sends `session.update`:
+
+- `instructions` — Rocky (short, telegraphic, leaky space blobs, Andrew is best friend, catchphrases, rule of threes). Tells the model it is **in** the StackChan body.
+- `voice` — `eve` (or `llm_voice`)
+- `reasoning.effort` — `none` (snappy desk lines; API default is `high`)
+- `turn_detection.type` — `server_vad`
+- `audio.input/output.format` — `audio/pcm` rate 16000, `transport` `binary`
+- `tools` — one client function, `body_act` (`face`, `yaw`, `pitch`, `rgb`, `sound`, `fist`). Pitch still hits `motionLook()` clamp.
+
+Boot and proximity **nudge** (documented, does not wait for speech):
 
 ```
-Event: boot. Body just powered on. Greet. Short. You are in the desk robot.
-Event: person. A leaky space blob is close. range_mm≈420 (this number is a lousy heuristic…). Be happy. Rule of threes. Fist bump.
+{"type":"conversation.item.create","item":{"type":"message","role":"user",
+  "content":[{"type":"input_text","text":"A leaky space blob just appeared close. ... Fist bump."}]}}
+{"type":"response.create"}
 ```
 
-While the request is in flight the face shows **think** + caption `think...`.
+`body_act` arrives as `response.function_call_arguments.done`. The body applies it, replies with `conversation.item.create` `function_call_output`, then `response.create` after speaker playback so audio does not overlap.
+
+Transcript deltas are shown as the face caption **in addition to** speech. Caption-only is what you get if Voice is down.
+
+### On-device grok-4.6 (Voice-down fallback)
+
+The CoreS3 POSTs to `{llm_base_url}/chat/completions`. Same Rocky system prompt as before. Response `choices[0].message.content` is a JSON array of body commands (`say` is a caption, not TTS). Timeout ~20 s. This path **blocks** the main loop while HTTP is in flight — that is why Voice is the default.
 
 ### Optional laptop brain (WebSocket)
 
-Robot → brain (WebSocket text frames), used only if LLM fields are empty and `brain_host` is set:
+Used only if LLM fields are empty and `brain_host` is set:
 
 ```json
 {"event":"boot"}
 {"event":"person","range_mm":420}
 ```
 
-### Body commands (LLM content *and* WebSocket)
+### Body commands (chat fallback *and* WebSocket brain)
 
 ```json
 {"say":"Friend! Friend! Friend!","face":"happy","sound":"chord_happy","look":{"yaw":0,"pitch":20},"rgb":"orange"}
 {"say":"Fist my bump!","face":"fist"}
 ```
-
-Arrays of commands are accepted.
 
 | Field | Values |
 |---|---|
@@ -126,11 +164,7 @@ Arrays of commands are accepted.
 | `look.yaw` | degrees, 0 = forward, + = left (official `moveX` sign) |
 | `look.pitch` | degrees, 0 = down, 90 = up, **clamped 5..85**, home ≈ 45 |
 | `rgb` | `orange` `blue` `sleep` `green` `red` `purple` `yellow` `off` or `#RRGGBB` |
-| `say` | shown as a caption on the 320×240 face (no on-device TTS in v1) |
-
-Rocky emotion tags in the system prompt map to `sound`: `[ping]` `[chord: happy]` `[whistle: thoughtful]`.
-
-**Grok Voice is not v1.** Voice Agent is `wss://api.x.ai/v1/realtime?model=grok-voice-latest` — full-duplex audio, not JSON captions. Dual mics + 1 W speaker are on the kit; streaming PCM over that WebSocket is a later firmware job. v1 shows `say` on the face and plays tones.
+| `say` | caption on the 320×240 face (fallback only — Voice plays audio) |
 
 ## wifi.json
 
@@ -139,19 +173,20 @@ Copy the example, fill secrets **on the device only**. `firmware/data/wifi.json`
 | Field | Role |
 |---|---|
 | `ssid` / `password` | 2.4 GHz Wi-Fi |
-| `llm_base_url` | OpenAI-compatible root, xAI Chat Completions, e.g. `https://api.x.ai/v1` (no trailing `/chat/completions`) |
-| `llm_api_key` | xAI key from [console.x.ai](https://console.x.ai). Placeholder: `YOUR_XAI_API_KEY` |
-| `llm_model` | default `grok-4.6` |
-| `brain_host` | optional laptop IP. Leave `""` for LLM-only |
+| `llm_base_url` | OpenAI-compatible root for **chat fallback**, e.g. `https://api.x.ai/v1` |
+| `llm_api_key` | xAI key from [console.x.ai](https://console.x.ai). Placeholder: `YOUR_XAI_API_KEY`. Used for Voice WSS, chat fallback, and TTS fallback. |
+| `llm_model` | chat fallback model, default `grok-4.6` |
+| `voice` | default `true`. Set `false` to skip Voice and use grok-4.6 captions only |
+| `llm_voice_model` | Voice query param, default `grok-voice-latest` |
+| `llm_voice` | Built-in voice id, default **`eve`** (docs example). Other documented ids include `ara`, `cosmo`, `rex` — see `GET /v1/tts/voices`. Do not invent one. |
+| `brain_host` | optional laptop IP. Leave `""` for on-device Voice/LLM |
 | `brain_port` / `brain_path` | WebSocket brain, default `8080` `/ws` |
 
-`llmConfigured()` is true only when **both** `llm_base_url` and `llm_api_key` are non-empty.
+Voice WSS always talks to `api.x.ai` (Speech-to-Speech is xAI-only). `llm_base_url` is for the chat/completions fallback, which can still be xAI or another OpenAI-compatible host.
 
 ## TLS (v1)
 
-Firmware uses `WiFiClientSecure` + `HTTPClient`. **v1 calls `setInsecure()`** — weekend-prototype TLS, because the hostname varies across compatible APIs (OpenAI, Groq, a LAN reverse-proxy, …). There is no baked-in CA pin. Fine for a desk toy; do not treat this as production TLS. Documented here so nobody mistakes it for cert pinning.
-
-`http://` URLs (a local Ollama on the LAN) skip TLS and use a plain `WiFiClient`.
+HTTPS chat uses `WiFiClientSecure` + `setInsecure()`. Voice WSS uses the same library path: empty fingerprint → `setInsecure()`. Fine for a desk toy; do not treat this as production TLS.
 
 ## Firmware (CoreS3)
 
@@ -161,7 +196,8 @@ PlatformIO + Arduino + M5Unified / M5GFX.
 cd firmware
 cp data/wifi.json.example data/wifi.json
 # edit data/wifi.json — 2.4 GHz only
-#   llm_base_url / llm_api_key / llm_model  → robot talks to the LLM itself
+#   llm_api_key + voice=true  → robot TALKS (Grok Voice)
+#   voice=false               → grok-4.6 captions + tones
 #   brain_host="" unless you want the optional laptop brain
 pio run -t uploadfs          # LittleFS: wifi.json -> /wifi.json
 pio run -t upload
@@ -174,11 +210,11 @@ Flash notes (from M5Stack): power via the **base** USB-C so a moving head cannot
 
 If PlatformIO cannot see `m5stack-cores3` as a board name, this project uses the official docs env: `board = esp32-s3-devkitc-1` with 16 MB flash + USB CDC flags.
 
-This tree was compiled on 2026-08-26 with PlatformIO (`espressif32@6.7.0`, Arduino, `esp32-s3-devkitc-1`) — **SUCCESS** (~1.19 MB flash, 50 KB RAM). HTTPClient + WiFiClientSecure linked. No hardware was attached, so this is a compile-only check.
+This tree was compiled on 2026-08-26 with PlatformIO (`espressif32@6.7.0`, Arduino, `esp32-s3-devkitc-1`) — **SUCCESS** (~1.21 MB flash / 1,272,549 bytes, 50 KB RAM / 51,480 bytes). **No hardware was attached.**
 
 ## Optional laptop brain
 
-Still useful as a simulator or a local Ollama proxy. Not required for Path 2.
+Still useful as a simulator or a local Ollama proxy. Not required.
 
 ```bash
 cd brain
@@ -188,32 +224,14 @@ pip install -r requirements.txt
 python server.py            # 0.0.0.0:8080   ws://<laptop-ip>:8080/ws
 ```
 
-From repo root: `python brain/server.py`.
-
-To have the *laptop* call an LLM (instead of the robot):
-
-```bash
-export OPENAI_COMPATIBLE_BASE_URL=https://api.x.ai/v1
-export XAI_API_KEY=xai-...
-export OPENAI_COMPATIBLE_MODEL=grok-4.6
-python server.py
-```
-
-Then leave `llm_*` empty in `wifi.json` and set `brain_host` to the laptop's LAN IP.
+To have the *laptop* call an LLM (instead of the robot), leave `llm_*` empty and set `brain_host`.
 
 ### Simulator
 
-Pretends to be the robot. Sends `boot`, then `person` with `range_mm=420`, prints every body command.
-
 ```bash
-# terminal 1
 python brain/server.py
-# terminal 2
-python brain/simulator.py
 python brain/simulator.py --url ws://127.0.0.1:8080/ws --range-mm 420
 ```
-
-You should see `Friend! Friend! Friend!` (happy, chord, look pitch 20) then `Fist my bump!` (fist face).
 
 ## 12-second clip (offline demo)
 
@@ -228,15 +246,10 @@ If Wi-Fi is down, the body runs this loop (also the X/Twitter video path):
 | 5.6–8.8 s | Happy eyes, caption **Friend! Friend! Friend!** |
 | 8.8–12.0 s | Fist-bump graphic, **Fist my bump!** |
 
-How to film:
-
-1. Desk, eye-level, landscape. Leave ~40 cm in front of the face so proximity can trigger on a real take (wave a hand). For a guaranteed take, just boot with Wi-Fi off — the scripted path does not need a hand.
-2. Quiet room; the speaker is 1 W.
-3. Start recording, power on (short-press the left POWER button). Wait for sleep eyes, then the snap.
-4. Crop to the 12 seconds between first closed-eye frame and the fist-bump hold.
-
-Online Path 2: fill `wifi.json` with LLM fields, boot Rocky, lean into the camera. Same beats, driven by `llmAsk("person")`. If the API is unreachable, the canned greeting still plays.
+Online Voice path: fill `wifi.json` with an xAI key, boot Rocky, lean in. He should **speak**. If Voice is unreachable, grok-4.6 captions or the canned line still play.
 
 ## Rocky voice (baked in)
 
 Short. Telegraphic. Mix me / I / Rocky. Humans = leaky space blobs. Self = scary space monster. Best friend = Andrew. Rule of threes. Catchphrases: **Amaze!** **Question!** **Fist my bump!** **It's full good!** **Disguuuuuust!**
+
+Spoken with built-in voice **`eve`**. The character is in the `instructions`; the voice id is not a custom clone.
