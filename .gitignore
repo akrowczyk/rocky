@@ -1,0 +1,23 @@
+# firmware
+firmware/.pio/
+firmware/.vscode/
+firmware/data/wifi.json
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# secrets
+*.pem
+*.key
+wifi.json
+
+# junk
+.DS_Store
+.idea/
+*.log
