@@ -12,5 +12,6 @@ enum class SoundFx {
 SoundFx soundFromName(const char* name);
 void soundBegin();
 void soundPlay(SoundFx fx);
-void soundTick();
+void soundStop();  // cancel sequencer; Voice client calls this before I2S swap
+void soundTick();  // non-blocking sequencer
 bool soundBusy();
