@@ -1,7 +1,10 @@
 {
   "ssid": "YOUR_WIFI_SSID",
   "password": "YOUR_WIFI_PASSWORD",
-  "brain_host": "192.168.1.50",
+  "llm_base_url": "https://api.openai.com/v1",
+  "llm_api_key": "YOUR_LLM_API_KEY",
+  "llm_model": "gpt-4o-mini",
+  "brain_host": "",
   "brain_port": 8080,
   "brain_path": "/ws"
 }
