@@ -29,7 +29,7 @@ bool wifiConfigLoad(WifiConfig& out) {
     out.llm_model = doc["llm_model"] | "grok-4.6";
     out.voice = doc["voice"] | true;
     out.llm_voice_model = doc["llm_voice_model"] | "grok-voice-latest";
-    out.llm_voice = doc["llm_voice"] | "eve";
+    out.llm_voice = doc["llm_voice"] | "rex";
     out.brain_host = doc["brain_host"] | "";
     out.brain_port = doc["brain_port"] | 8080;
     out.brain_path = doc["brain_path"] | "/ws";

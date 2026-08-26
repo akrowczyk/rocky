@@ -6,7 +6,7 @@
   "llm_model": "grok-4.6",
   "voice": true,
   "llm_voice_model": "grok-voice-latest",
-  "llm_voice": "eve",
+  "llm_voice": "rex",
   "brain_host": "",
   "brain_port": 8080,
   "brain_path": "/ws"

@@ -10,7 +10,7 @@ struct WifiConfig {
     String llm_model = "grok-4.6";
     bool voice = true;                              // Grok Voice Agent (realtime WSS)
     String llm_voice_model = "grok-voice-latest";   // query param on /v1/realtime
-    String llm_voice = "eve";                       // built-in voice id (docs default)
+    String llm_voice = "rex";                       // built-in voice id (Andrew: not eve)
     String brain_host;
     uint16_t brain_port = 8080;
     String brain_path = "/ws";

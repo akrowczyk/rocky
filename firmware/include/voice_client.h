@@ -24,6 +24,6 @@ void voiceNudge(const char* user_text);
 void voiceGreetBoot();
 void voiceGreetPerson(int range_mm);
 
-// REST POST /v1/tts PCM fallback (same eve voice). Blocking ~few seconds.
+// REST POST /v1/tts PCM fallback (same llm_voice, default rex). Blocking ~few seconds.
 // Used only when the realtime socket is down. Returns false on HTTP failure.
 bool voiceTtsSpeak(const char* text);
