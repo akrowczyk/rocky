@@ -26,7 +26,7 @@ bool wifiConfigLoad(WifiConfig& out) {
     out.password = doc["password"] | "";
     out.llm_base_url = doc["llm_base_url"] | "";
     out.llm_api_key = doc["llm_api_key"] | "";
-    out.llm_model = doc["llm_model"] | "gpt-4o-mini";
+    out.llm_model = doc["llm_model"] | "grok-4.6";
     out.brain_host = doc["brain_host"] | "";
     out.brain_port = doc["brain_port"] | 8080;
     out.brain_path = doc["brain_path"] | "/ws";
