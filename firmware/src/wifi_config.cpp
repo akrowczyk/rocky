@@ -27,6 +27,9 @@ bool wifiConfigLoad(WifiConfig& out) {
     out.llm_base_url = doc["llm_base_url"] | "";
     out.llm_api_key = doc["llm_api_key"] | "";
     out.llm_model = doc["llm_model"] | "grok-4.6";
+    out.voice = doc["voice"] | true;
+    out.llm_voice_model = doc["llm_voice_model"] | "grok-voice-latest";
+    out.llm_voice = doc["llm_voice"] | "eve";
     out.brain_host = doc["brain_host"] | "";
     out.brain_port = doc["brain_port"] | 8080;
     out.brain_path = doc["brain_path"] | "/ws";
@@ -35,11 +38,13 @@ bool wifiConfigLoad(WifiConfig& out) {
         return false;
     }
     out.loaded = true;
-    Serial.printf("[wifi] ssid=%s llm=%s model=%s key=%s brain=%s:%u%s\n",
+    Serial.printf("[wifi] ssid=%s llm=%s model=%s key=%s voice=%s/%s brain=%s:%u%s\n",
                   out.ssid.c_str(),
                   out.llm_base_url.isEmpty() ? "-" : out.llm_base_url.c_str(),
                   out.llm_model.c_str(),
                   out.llm_api_key.isEmpty() ? "no" : "yes",
+                  out.voice ? out.llm_voice_model.c_str() : "off",
+                  out.llm_voice.c_str(),
                   out.brain_host.isEmpty() ? "-" : out.brain_host.c_str(),
                   out.brain_port,
                   out.brain_path.c_str());

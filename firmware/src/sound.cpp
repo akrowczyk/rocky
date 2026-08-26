@@ -45,7 +45,16 @@ static void startSeq(const Step* s, int n) {
     g_step_until = 0;
 }
 
+void soundStop() {
+    g_busy = false;
+    g_seq = nullptr;
+    g_seq_len = 0;
+    g_seq_i = 0;
+    if (M5.Speaker.isRunning()) M5.Speaker.stop();
+}
+
 void soundPlay(SoundFx fx) {
+    if (!M5.Speaker.isRunning()) return;  // Voice may hold the shared I2S as mic
     switch (fx) {
         case SoundFx::Ping:              startSeq(kPing, 3); break;
         case SoundFx::ChordHappy:        startSeq(kChord, 7); break;
@@ -56,6 +65,7 @@ void soundPlay(SoundFx fx) {
 
 void soundTick() {
     if (!g_busy || !g_seq) return;
+    if (!M5.Speaker.isRunning()) { g_busy = false; return; }
     uint32_t now = millis();
     if (now < g_step_until) return;
     if (g_seq_i >= g_seq_len) {
