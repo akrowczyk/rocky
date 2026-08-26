@@ -1,0 +1,7 @@
+{
+  "ssid": "YOUR_WIFI_SSID",
+  "password": "YOUR_WIFI_PASSWORD",
+  "brain_host": "192.168.1.50",
+  "brain_port": 8080,
+  "brain_path": "/ws"
+}
