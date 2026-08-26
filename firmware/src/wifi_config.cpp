@@ -24,16 +24,25 @@ bool wifiConfigLoad(WifiConfig& out) {
     }
     out.ssid = doc["ssid"] | "";
     out.password = doc["password"] | "";
+    out.llm_base_url = doc["llm_base_url"] | "";
+    out.llm_api_key = doc["llm_api_key"] | "";
+    out.llm_model = doc["llm_model"] | "gpt-4o-mini";
     out.brain_host = doc["brain_host"] | "";
     out.brain_port = doc["brain_port"] | 8080;
     out.brain_path = doc["brain_path"] | "/ws";
-    if (out.ssid.isEmpty() || out.brain_host.isEmpty()) {
-        Serial.println("[wifi] ssid or brain_host empty");
+    if (out.ssid.isEmpty()) {
+        Serial.println("[wifi] ssid empty");
         return false;
     }
     out.loaded = true;
-    Serial.printf("[wifi] ssid=%s brain=%s:%u%s\n",
-                  out.ssid.c_str(), out.brain_host.c_str(), out.brain_port, out.brain_path.c_str());
+    Serial.printf("[wifi] ssid=%s llm=%s model=%s key=%s brain=%s:%u%s\n",
+                  out.ssid.c_str(),
+                  out.llm_base_url.isEmpty() ? "-" : out.llm_base_url.c_str(),
+                  out.llm_model.c_str(),
+                  out.llm_api_key.isEmpty() ? "no" : "yes",
+                  out.brain_host.isEmpty() ? "-" : out.brain_host.c_str(),
+                  out.brain_port,
+                  out.brain_path.c_str());
     return true;
 }
 

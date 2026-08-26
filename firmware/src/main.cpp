@@ -1,6 +1,5 @@
 #include <M5Unified.h>
 #include <M5GFX.h>
-
 #include "config.h"
 #include "pins.h"
 #include "face.h"
@@ -10,12 +9,33 @@
 #include "proximity.h"
 #include "wifi_config.h"
 #include "brain_client.h"
+#include "llm_client.h"
 #include "offline_demo.h"
 
+enum class RunMode : uint8_t { Offline, Llm, Brain };
+
 static WifiConfig g_wifi;
-static bool g_online = false;
+static RunMode g_mode = RunMode::Offline;
 static uint32_t g_last_person_ms = 0;
 static bool g_person_latched = false;
+
+static void playCannedGreeting() {
+    faceSet(Face::Happy);
+    faceSetCaption("Friend! Friend! Friend!");
+    rgbSetEmotion("orange");
+    soundPlay(SoundFx::ChordHappy);
+    motionLook(0.0f, 20.0f, 250);
+    faceTick();
+    uint32_t until = millis() + config::LLM_CMD_GAP_MS;
+    while (millis() < until) {
+        soundTick();
+        faceTick();
+        delay(15);
+    }
+    faceSet(Face::Fist);
+    faceSetCaption("Fist my bump!");
+    faceTick();
+}
 
 void setup() {
     auto cfg = M5.config();
@@ -24,7 +44,7 @@ void setup() {
     Serial.begin(115200);
     delay(200);
     Serial.println("\n=== Desk Rocky  (StackChan CoreS3 / K151-R) ===");
-    Serial.println("Owner: Andrew Krowczyk  |  Brain is a laptop, not Module LLM");
+    Serial.println("Owner: Andrew Krowczyk  |  On-device LLM  |  laptop brain optional");
 
     faceBegin();
     soundBegin();
@@ -44,26 +64,40 @@ void setup() {
     }
 
     if (wifi_ok) {
-        brainBegin(g_wifi);
-        faceSetCaption("brain...");
-        uint32_t start = millis();
-        while (!brainConnected() && millis() - start < config::BRAIN_TIMEOUT_MS) {
-            brainTick();
-            soundTick();
-            faceTick();
-            delay(20);
+        llmBegin(g_wifi);
+        if (llmConfigured()) {
+            g_mode = RunMode::Llm;
+            Serial.println("[main] LLM mode — no laptop required");
+            if (!llmAsk("boot")) {
+                Serial.println("[main] llm boot failed — local wait");
+                faceSet(Face::Think);
+                faceSetCaption("Me Rocky. Me wait.");
+                rgbSetEmotion("blue");
+                soundPlay(SoundFx::Ping);
+            }
+        } else if (!g_wifi.brain_host.isEmpty()) {
+            brainBegin(g_wifi);
+            faceSetCaption("brain...");
+            uint32_t start = millis();
+            while (!brainConnected() && millis() - start < config::BRAIN_TIMEOUT_MS) {
+                brainTick();
+                soundTick();
+                faceTick();
+                delay(20);
+            }
+            if (brainConnected()) {
+                g_mode = RunMode::Brain;
+                faceSet(Face::Think);
+                faceSetCaption("Me Rocky. Me wait.");
+                rgbSetEmotion("blue");
+                soundPlay(SoundFx::Ping);
+            }
         }
-        g_online = brainConnected();
     }
 
-    if (!g_online) {
-        Serial.println("[main] brain unreachable — offline 12s demo");
+    if (g_mode == RunMode::Offline) {
+        Serial.println("[main] offline 12s demo");
         demoStart();
-    } else {
-        faceSet(Face::Think);
-        faceSetCaption("Me Rocky. Me wait.");
-        rgbSetEmotion("blue");
-        soundPlay(SoundFx::Ping);
     }
 }
 
@@ -74,16 +108,16 @@ void loop() {
     faceTick();
     demoTick();
 
-    if (g_online && !brainConnected()) {
+    if (g_mode == RunMode::Brain && !brainConnected()) {
         if (!demoRunning()) {
             Serial.println("[main] brain lost — offline demo");
             demoStart();
         }
-        g_online = false;
+        g_mode = RunMode::Offline;
     }
-    if (!g_online && brainConnected()) {
+    if (g_mode == RunMode::Offline && brainConnected()) {
         demoCancel();
-        g_online = true;
+        g_mode = RunMode::Brain;
         faceSet(Face::Think);
         faceSetCaption("Brain back. Full good.");
     }
@@ -95,7 +129,13 @@ void loop() {
             int mm = proximityRangeMm();
             Serial.printf("[main] person range_mm~%d (heuristic) raw=%u\n", mm, proximityRaw());
             motionSnapTowardPerson();
-            if (g_online) {
+            if (g_mode == RunMode::Llm) {
+                demoCancel();
+                if (!llmAsk("person", mm)) {
+                    Serial.println("[main] llm person failed — canned greeting");
+                    playCannedGreeting();
+                }
+            } else if (g_mode == RunMode::Brain) {
                 demoCancel();
                 brainSendPerson(mm);
             }
