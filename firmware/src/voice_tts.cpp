@@ -29,7 +29,7 @@ bool voiceTtsSpeak(const char* text) {
 
     JsonDocument req;
     req["text"] = text;
-    req["voice_id"] = g_tts_voice.isEmpty() ? "eve" : g_tts_voice;
+    req["voice_id"] = g_tts_voice.isEmpty() ? "rex" : g_tts_voice;
     req["language"] = "en";
     req["output_format"]["codec"] = "pcm";
     req["output_format"]["sample_rate"] = (int)VOICE_I2S_RATE;
